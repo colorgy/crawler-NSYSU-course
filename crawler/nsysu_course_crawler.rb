@@ -26,6 +26,7 @@ class NsysuCourseCrawler
   }
 
   def initialize year: current_year, term: current_term, update_progress: nil, after_each: nil, params: nil
+    @query_url = "https://selcrs.nsysu.edu.tw/menu1/dplycourse.asp"
 
     @year = params && params["year"].to_i || year
     @term = params && params["term"].to_i || term
@@ -37,7 +38,7 @@ class NsysuCourseCrawler
     @courses = []
     ic = Iconv.new("utf-8//translit//IGNORE","big5")
 
-    visit "https://selcrs.nsysu.edu.tw/menu1/dplycourse.asp?#{{
+    visit "#{@query_url}?#{{
       "a" => '1',
       "D0" => "#{@year-1911}#{@term}",
       "D1" => nil,
@@ -66,7 +67,7 @@ class NsysuCourseCrawler
 
     (1..@page_num).each do |page_num|
       puts page_num
-      r = RestClient.get "https://selcrs.nsysu.edu.tw/menu1/dplycourse.asp?#{{
+      r = RestClient.get "#{@query_url}?#{{
         "a" => '1',
         "D0" => "#{@year-1911}#{@term}",
         "D1" => nil,
