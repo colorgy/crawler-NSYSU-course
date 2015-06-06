@@ -1,4 +1,4 @@
 source 'https://rubygems.org'
-gem 'nokogiri'
+
+gem 'crawler_rocks'
 gem 'pry'
-gem 'rest-client'
