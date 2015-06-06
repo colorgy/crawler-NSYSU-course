@@ -11,6 +11,7 @@ GEM
       unf (>= 0.0.5, < 1.0.0)
     http-cookie (1.0.2)
       domain_name (~> 0.5)
+    iconv (1.0.4)
     method_source (0.8.2)
     mime-types (2.6.1)
     mini_portile (0.6.2)
@@ -35,4 +36,5 @@ PLATFORMS
 
 DEPENDENCIES
   crawler_rocks
+  iconv
   pry

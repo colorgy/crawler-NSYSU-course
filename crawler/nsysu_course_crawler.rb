@@ -1,4 +1,5 @@
 require 'crawler_rocks'
+require 'iconv'
 require 'json'
 require 'pry'
 
@@ -34,6 +35,7 @@ class NsysuCourseCrawler
 
   def courses
     @courses = []
+    ic = Iconv.new("utf-8//translit//IGNORE","big5")
 
     visit "https://selcrs.nsysu.edu.tw/menu1/dplycourse.asp?#{{
       "a" => '1',
@@ -63,6 +65,7 @@ class NsysuCourseCrawler
     end
 
     (1..@page_num).each do |page_num|
+      puts page_num
       r = RestClient.get "https://selcrs.nsysu.edu.tw/menu1/dplycourse.asp?#{{
         "a" => '1',
         "D0" => "#{@year-1911}#{@term}",
@@ -84,9 +87,9 @@ class NsysuCourseCrawler
         "TYP" => '1',
         "bottom_per_page" => 10,
         "data_per_page" => 20,
-        "page" => 1}.map{|k, v| "#{k}=#{v}"}.join('&')}"
+        "page" => page_num}.map{|k, v| "#{k}=#{v}"}.join('&')}"
 
-      document = Nokogiri::HTML(r.to_s)
+      document = Nokogiri::HTML(ic.iconv(r.to_s))
       document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
         datas = row.css("td")
 
@@ -118,7 +121,7 @@ class NsysuCourseCrawler
           grade: datas[4] && datas[4].text,
           # class_name: datas[5] && datas[5].text,
           name: datas[6] && datas[6].text,
-          name_url: datas[6] && datas[6].css('a')[0] && datas[6].css('a')[0][:href],
+          url: datas[6] && datas[6].css('a')[0] && URI.encode(datas[6].css('a')[0][:href]),
           credits: datas[7] && datas[7].text,
           # semester: datas[8] && datas[8].text,
           required:datas[9] && datas[9].text.include?('必'),
