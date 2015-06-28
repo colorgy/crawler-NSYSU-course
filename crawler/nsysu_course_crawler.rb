@@ -73,7 +73,8 @@ class NsysuCourseCrawler
           document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
             datas = row.css("td")
 
-            code = "#{@year}-#{@term}-#{datas[4] && datas[4].text}"
+            general_code = datas[4] && datas[4].text
+            code = "#{@year}-#{@term}-#{general_code}"
 
             course_days = []
             course_periods = []
@@ -91,12 +92,13 @@ class NsysuCourseCrawler
               end
             end
 
-            @courses << {
+            course = {
               year: @year,
               term: @term,
               department: datas[3] && datas[3].text,
               # serial: datas[3] && datas[3].text,
               code: code,
+              general_code: general_code,
               grade: datas[5] && datas[5].text,
               # class_name: datas[5] && datas[5].text,
               name: datas[7] && datas[7].text,
@@ -134,6 +136,8 @@ class NsysuCourseCrawler
               location_8: course_locations[7],
               location_9: course_locations[8],
             }
+            @after_each_proc.call(course: course) if @after_each_proc
+            @courses << course
           end # end each row
         end # end thread do
       end # each page
@@ -180,6 +184,5 @@ class NsysuCourseCrawler
   end
 end
 
-
-cc = NsysuCourseCrawler.new(year: 2015, term: 1)
-File.write('nsysu_courses.json', JSON.pretty_generate(cc.courses))
+# cc = NsysuCourseCrawler.new(year: 2015, term: 1)
+# File.write('nsysu_courses.json', JSON.pretty_generate(cc.courses))
