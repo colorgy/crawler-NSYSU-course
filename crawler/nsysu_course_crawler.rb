@@ -7,6 +7,7 @@ class NsysuCourseCrawler
   include CrawlerRocks::DSL
 
   DAYS = %w(一 二 三 四 五 六 日)
+
   PERIODS = {
     "A" => 1,
     "1" => 2,
@@ -26,141 +27,138 @@ class NsysuCourseCrawler
   }
 
   def initialize year: current_year, term: current_term, update_progress: nil, after_each: nil, params: nil
-    @query_url = "https://selcrs.nsysu.edu.tw/menu1/dplycourse.asp"
+
+    @query_url = "http://selcrs.nsysu.edu.tw/menu1/dplycourse.asp"
+    @form_url = "http://selcrs.nsysu.edu.tw/menu1/qrycourse.asp?HIS=1&eng=&in_eng=&IDNO=&ITEM="
 
     @year = params && params["year"].to_i || year
     @term = params && params["term"].to_i || term
     @update_progress_proc = update_progress
     @after_each_proc = after_each
+
+    @ic = Iconv.new("utf-8//translit//IGNORE","big5")
   end
 
   def courses
     @courses = []
-    ic = Iconv.new("utf-8//translit//IGNORE","big5")
 
-    visit "#{@query_url}?#{{
-      "a" => '1',
-      "D0" => "#{@year-1911}#{@term}",
-      "D1" => nil,
-      "D2" => nil,
-      "CLASS_COD" => nil,
-      "T3" => nil,
-      "teacher" => nil,
-      "crsname" => nil,
-      "WKDAY" => '3',
-      "SECT" => nil,
-      "SECT_COD" => nil,
-      "ALL" => nil,
-      "CB1" => nil,
-      "SPEC" => nil,
-      "HIS" => '2',
-      "IDNO" => nil,
-      "ITEM" => nil,
-      "TYP" => '1',
-      "bottom_per_page" => 10,
-      "data_per_page" => 20,
-      "page" => 1}.map{|k, v| "#{k}=#{v}"}.join('&')}"
+    r = RestClient.get @form_url
+    doc = Nokogiri::HTML(@ic.iconv r)
 
-    @doc.text.match(/第\ \d+\ \/\ (?<pn>\d+)\ 頁/) do |m|
-      @page_num = m[:pn].to_i
-    end
+    deps_h = Hash[ doc.css('select[name="D1"] option:not(:first-child)').map{|opt| [opt[:value], opt.text]} ]
 
-    (1..@page_num).each do |page_num|
-      puts page_num
-      r = RestClient.get "#{@query_url}?#{{
-        "a" => '1',
-        "D0" => "#{@year-1911}#{@term}",
-        "D1" => nil,
-        "D2" => nil,
-        "CLASS_COD" => nil,
-        "T3" => nil,
-        "teacher" => nil,
-        "crsname" => nil,
-        "WKDAY" => '3',
-        "SECT" => nil,
-        "SECT_COD" => nil,
-        "ALL" => nil,
-        "CB1" => nil,
-        "SPEC" => nil,
-        "HIS" => '2',
-        "IDNO" => nil,
-        "ITEM" => nil,
-        "TYP" => '1',
-        "bottom_per_page" => 10,
-        "data_per_page" => 20,
-        "page" => page_num}.map{|k, v| "#{k}=#{v}"}.join('&')}"
+    deps_h.each_key do |key|
+      print "#{deps_h[key]}\n"
+      doc = search_by(key, 1)
 
-      document = Nokogiri::HTML(ic.iconv(r.to_s))
-      document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
-        datas = row.css("td")
+      page_num = 0
+      doc.text.match(/第\ \d+\ \/\ (?<pn>\d+)\ 頁/) do |m| # 第 1 / 3 頁
+        page_num = m[:pn].to_i
+      end
+      next if page_num.zero?
 
-        code = "#{@year}-#{@term}-#{datas[3] && datas[3].text}"
+      (1..page_num).each do |i|
+        print "#{i},"
 
-        course_days = []
-        course_periods = []
-        course_locations = []
-        location = datas[12] && datas[12].text
+        document = search_by(key, i)
+        document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
+          datas = row.css("td")
 
-        times = datas[13..19]
-        times_arr = (0..6).select {|i| !times[i].text.strip.gsub("&nbsp", '').empty?}.map{|i| [(i+1).to_s, times[i].text.strip.gsub("&nbsp", '')]}
-        times_h = Hash[times_arr]
-        times_h.keys.each do |k|
-          times_h[k].split('').each do |p|
-            course_days << k
-            course_periods << p
-            course_locations << location
+          code = "#{@year}-#{@term}-#{datas[4] && datas[4].text}"
+
+          course_days = []
+          course_periods = []
+          course_locations = []
+          location = datas[16] && datas[16].text
+
+          times = datas[17..23]
+          times_arr = (0..6).select {|i| !times[i].text.strip.gsub("&nbsp", '').empty?}.map{|i| [(i+1).to_s, times[i].text.strip.gsub("&nbsp", '')]}
+          times_h = Hash[times_arr]
+          times_h.keys.each do |k|
+            times_h[k].split('').each do |p|
+              course_days << k.to_i
+              course_periods << PERIODS[p].to_i
+              course_locations << location
+            end
           end
-        end
 
+          @courses << {
+            year: @year,
+            term: @term,
+            department: datas[3] && datas[3].text,
+            # serial: datas[3] && datas[3].text,
+            code: code,
+            grade: datas[5] && datas[5].text,
+            # class_name: datas[5] && datas[5].text,
+            name: datas[7] && datas[7].text,
+            url: datas[7] && datas[7].css('a')[0] && URI.encode(datas[7].css('a')[0][:href]),
+            credits: datas[8] && datas[8].text.to_i,
+            # semester: datas[8] && datas[8].text,
+            required:datas[10] && datas[10].text.include?('必'),
+            lecturer:datas[15] && datas[15].text,
+            # note: datas[20] && datas[20].text,
+            day_1: course_days[0],
+            day_2: course_days[1],
+            day_3: course_days[2],
+            day_4: course_days[3],
+            day_5: course_days[4],
+            day_6: course_days[5],
+            day_7: course_days[6],
+            day_8: course_days[7],
+            day_9: course_days[8],
+            period_1: course_periods[0],
+            period_2: course_periods[1],
+            period_3: course_periods[2],
+            period_4: course_periods[3],
+            period_5: course_periods[4],
+            period_6: course_periods[5],
+            period_7: course_periods[6],
+            period_8: course_periods[7],
+            period_9: course_periods[8],
+            location_1: course_locations[0],
+            location_2: course_locations[1],
+            location_3: course_locations[2],
+            location_4: course_locations[3],
+            location_5: course_locations[4],
+            location_6: course_locations[5],
+            location_7: course_locations[6],
+            location_8: course_locations[7],
+            location_9: course_locations[8],
+          }
+        end # end each row
+      end # each page
+    end # end each deps
 
-        @courses << {
-          year: @year,
-          term: @term,
-          department: datas[2] && datas[2].text,
-          # serial: datas[3] && datas[3].text,
-          code: code,
-          grade: datas[4] && datas[4].text,
-          # class_name: datas[5] && datas[5].text,
-          name: datas[6] && datas[6].text,
-          url: datas[6] && datas[6].css('a')[0] && URI.encode(datas[6].css('a')[0][:href]),
-          credits: datas[7] && datas[7].text,
-          # semester: datas[8] && datas[8].text,
-          required:datas[9] && datas[9].text.include?('必'),
-          lecturer:datas[11] && datas[11].text,
-          # note: datas[20] && datas[20].text,
-          day_1: course_days[0],
-          day_2: course_days[1],
-          day_3: course_days[2],
-          day_4: course_days[3],
-          day_5: course_days[4],
-          day_6: course_days[5],
-          day_7: course_days[6],
-          day_8: course_days[7],
-          day_9: course_days[8],
-          period_1: course_periods[0],
-          period_2: course_periods[1],
-          period_3: course_periods[2],
-          period_4: course_periods[3],
-          period_5: course_periods[4],
-          period_6: course_periods[5],
-          period_7: course_periods[6],
-          period_8: course_periods[7],
-          period_9: course_periods[8],
-          location_1: course_locations[0],
-          location_2: course_locations[1],
-          location_3: course_locations[2],
-          location_4: course_locations[3],
-          location_5: course_locations[4],
-          location_6: course_locations[5],
-          location_7: course_locations[6],
-          location_8: course_locations[7],
-          location_9: course_locations[8],
-        }
-      end # end each row
-    end # each page
-    File.write('courses.json', JSON.pretty_generate(@courses))
     @courses
   end # end courses
+
+  def search_by dep_c, page_num
+    r = RestClient.get(@query_url + "?" + {
+      "a" => '1',
+      "D0" => "#{@year-1911}#{@term}",
+      "D1" => dep_c,
+      "D2" => '',
+      "CLASS_COD" => '',
+      "T3" => '',
+      "teacher" => '',
+      "crsname" => '',
+      "WKDAY" => '',
+      "SECT" => '',
+      "SECT_COD" => '',
+      "ALL" => '',
+      "CB1" => '',
+      "SPEC" => '',
+      "HIS" => '1',
+      "IDNO" => '',
+      "ITEM" => '',
+      "TYP" => '1',
+      "bottom_per_page" => '10',
+      "data_per_page" => '20',
+      "page" => page_num,
+    }.map{|k, v| "#{k}=#{v}"}.join('&'))
+
+    Nokogiri::HTML(@ic.iconv r)
+  end
 
   def current_year
     (Time.now.month.between?(1, 7) ? Time.now.year - 1 : Time.now.year)
@@ -172,5 +170,5 @@ class NsysuCourseCrawler
 end
 
 
-cc = NsysuCourseCrawler.new(year: 2014, term: 1)
-cc.courses
+cc = NsysuCourseCrawler.new(year: 2015, term: 1)
+File.write('nsysu_courses.json', JSON.pretty_generate(cc.courses))
