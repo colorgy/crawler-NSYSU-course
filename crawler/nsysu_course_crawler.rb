@@ -3,6 +3,9 @@ require 'iconv'
 require 'json'
 require 'pry'
 
+require 'thread'
+require 'thwait'
+
 class NsysuCourseCrawler
   include CrawlerRocks::DSL
 
@@ -41,6 +44,7 @@ class NsysuCourseCrawler
 
   def courses
     @courses = []
+    @threads = []
 
     r = RestClient.get @form_url
     doc = Nokogiri::HTML(@ic.iconv r)
@@ -58,76 +62,83 @@ class NsysuCourseCrawler
       next if page_num.zero?
 
       (1..page_num).each do |i|
-        print "#{i},"
+        sleep(1) until (
+          @threads.delete_if { |t| !t.status };  # remove dead (ended) threads
+          @threads.count < (ENV['MAX_THREADS'] || 20)
+        )
+        @threads << Thread.new do
+          print "#{i},"
 
-        document = search_by(key, i)
-        document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
-          datas = row.css("td")
+          document = search_by(key, i)
+          document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
+            datas = row.css("td")
 
-          code = "#{@year}-#{@term}-#{datas[4] && datas[4].text}"
+            code = "#{@year}-#{@term}-#{datas[4] && datas[4].text}"
 
-          course_days = []
-          course_periods = []
-          course_locations = []
-          location = datas[16] && datas[16].text
+            course_days = []
+            course_periods = []
+            course_locations = []
+            location = datas[16] && datas[16].text
 
-          times = datas[17..23]
-          times_arr = (0..6).select {|i| !times[i].text.strip.gsub("&nbsp", '').empty?}.map{|i| [(i+1).to_s, times[i].text.strip.gsub("&nbsp", '')]}
-          times_h = Hash[times_arr]
-          times_h.keys.each do |k|
-            times_h[k].split('').each do |p|
-              course_days << k.to_i
-              course_periods << PERIODS[p].to_i
-              course_locations << location
+            times = datas[17..23]
+            times_arr = (0..6).select {|i| !times[i].text.strip.gsub("&nbsp", '').empty?}.map{|i| [(i+1).to_s, times[i].text.strip.gsub("&nbsp", '')]}
+            times_h = Hash[times_arr]
+            times_h.keys.each do |k|
+              times_h[k].split('').each do |p|
+                course_days << k.to_i
+                course_periods << PERIODS[p].to_i
+                course_locations << location
+              end
             end
-          end
 
-          @courses << {
-            year: @year,
-            term: @term,
-            department: datas[3] && datas[3].text,
-            # serial: datas[3] && datas[3].text,
-            code: code,
-            grade: datas[5] && datas[5].text,
-            # class_name: datas[5] && datas[5].text,
-            name: datas[7] && datas[7].text,
-            url: datas[7] && datas[7].css('a')[0] && URI.encode(datas[7].css('a')[0][:href]),
-            credits: datas[8] && datas[8].text.to_i,
-            # semester: datas[8] && datas[8].text,
-            required:datas[10] && datas[10].text.include?('必'),
-            lecturer:datas[15] && datas[15].text,
-            # note: datas[20] && datas[20].text,
-            day_1: course_days[0],
-            day_2: course_days[1],
-            day_3: course_days[2],
-            day_4: course_days[3],
-            day_5: course_days[4],
-            day_6: course_days[5],
-            day_7: course_days[6],
-            day_8: course_days[7],
-            day_9: course_days[8],
-            period_1: course_periods[0],
-            period_2: course_periods[1],
-            period_3: course_periods[2],
-            period_4: course_periods[3],
-            period_5: course_periods[4],
-            period_6: course_periods[5],
-            period_7: course_periods[6],
-            period_8: course_periods[7],
-            period_9: course_periods[8],
-            location_1: course_locations[0],
-            location_2: course_locations[1],
-            location_3: course_locations[2],
-            location_4: course_locations[3],
-            location_5: course_locations[4],
-            location_6: course_locations[5],
-            location_7: course_locations[6],
-            location_8: course_locations[7],
-            location_9: course_locations[8],
-          }
-        end # end each row
+            @courses << {
+              year: @year,
+              term: @term,
+              department: datas[3] && datas[3].text,
+              # serial: datas[3] && datas[3].text,
+              code: code,
+              grade: datas[5] && datas[5].text,
+              # class_name: datas[5] && datas[5].text,
+              name: datas[7] && datas[7].text,
+              url: datas[7] && datas[7].css('a')[0] && URI.encode(datas[7].css('a')[0][:href]),
+              credits: datas[8] && datas[8].text.to_i,
+              # semester: datas[8] && datas[8].text,
+              required:datas[10] && datas[10].text.include?('必'),
+              lecturer:datas[15] && datas[15].text,
+              # note: datas[20] && datas[20].text,
+              day_1: course_days[0],
+              day_2: course_days[1],
+              day_3: course_days[2],
+              day_4: course_days[3],
+              day_5: course_days[4],
+              day_6: course_days[5],
+              day_7: course_days[6],
+              day_8: course_days[7],
+              day_9: course_days[8],
+              period_1: course_periods[0],
+              period_2: course_periods[1],
+              period_3: course_periods[2],
+              period_4: course_periods[3],
+              period_5: course_periods[4],
+              period_6: course_periods[5],
+              period_7: course_periods[6],
+              period_8: course_periods[7],
+              period_9: course_periods[8],
+              location_1: course_locations[0],
+              location_2: course_locations[1],
+              location_3: course_locations[2],
+              location_4: course_locations[3],
+              location_5: course_locations[4],
+              location_6: course_locations[5],
+              location_7: course_locations[6],
+              location_8: course_locations[7],
+              location_9: course_locations[8],
+            }
+          end # end each row
+        end # end thread do
       end # each page
     end # end each deps
+    ThreadsWait.all_waits(*@threads)
 
     @courses
   end # end courses
