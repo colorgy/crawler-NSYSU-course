@@ -67,10 +67,11 @@ class NsysuCourseCrawler
           @threads.count < (ENV['MAX_THREADS'] || 20)
         )
         @threads << Thread.new do
+          begin
           print "#{i},"
 
           document = search_by(key, i)
-          document.css('html table tr:nth-child(n+4)')[1..-3].each do |row|
+          document.css('html table tr:nth-child(n+4)')[0..-3].each do |row|
             datas = row.css("td")
 
             general_code = datas[4] && datas[4].text
@@ -139,6 +140,14 @@ class NsysuCourseCrawler
             @after_each_proc.call(course: course) if @after_each_proc
             @courses << course
           end # end each row
+          rescue Exception => e
+
+            print e.backtrace
+            print "#{e}\n"
+            print "Error department: #{deps_h[key]}\n"
+            sleep 3
+            redo
+          end
         end # end thread do
       end # each page
     end # end each deps
